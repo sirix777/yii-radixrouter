@@ -1,0 +1,1083 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Sirix\Router\RadixRouter\Tests;
+
+use Nyholm\Psr7\ServerRequest;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\TestWith;
+use PHPUnit\Framework\TestCase;
+use RuntimeException;
+use Sirix\Router\RadixRouter\UrlGenerator;
+use Yiisoft\Router\CurrentRoute;
+use Yiisoft\Router\Group;
+use Yiisoft\Router\Route;
+use Yiisoft\Router\RouteCollection;
+use Yiisoft\Router\RouteCollectionInterface;
+use Yiisoft\Router\RouteCollector;
+use Yiisoft\Router\RouteNotFoundException;
+use Yiisoft\Router\UrlGeneratorInterface;
+
+final class UrlGeneratorTest extends TestCase
+{
+    public function testSimpleRouteGenerated(): void
+    {
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('index')
+        ;
+
+        $this->assertEquals('/home/index', $url);
+    }
+
+    #[DataProvider('dataGenerateWithUriPrefix')]
+    public function testGenerateWithUriPrefix(string $expected, string $prefix): void
+    {
+        $generator = $this->createUrlGenerator([
+            Route::get('/home/index')->name('index'),
+        ]);
+
+        $generator->setUriPrefix($prefix);
+
+        $this->assertSame($expected, $generator->generate('index'));
+    }
+
+    /**
+     * @return array<int, array{0: string, 1: string}>
+     */
+    public static function dataGenerateWithUriPrefix(): array
+    {
+        return [
+            ['/home/index', ''],
+            ['/test/home/index', '/test'],
+        ];
+    }
+
+    public function testRouteWithoutNameNotFound(): void
+    {
+        $routes = [
+            Route::get('/home/index'),
+            Route::get('/index'),
+            Route::get('index'),
+        ];
+        $urlGenerator = $this->createUrlGenerator($routes);
+
+        $this->expectException(RouteNotFoundException::class);
+        $urlGenerator->generate('index');
+    }
+
+    public function testArgumentsSubstituted(): void
+    {
+        $routes = [
+            Route::get('/view/:id/:text#:tag')->name('view'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('view', ['id' => 100, 'tag' => 'yii', 'text' => '~test'])
+        ;
+
+        $this->assertEquals('/view/100/~test#yii', $url);
+    }
+
+    public function testArgumentsAndQueryParametersUrlencode(): void
+    {
+        $routes = [
+            Route::get('/view/:name/:text')->name('view'),
+        ];
+        $urlGenerator = $this->createUrlGenerator($routes);
+        if ($urlGenerator instanceof UrlGenerator) {
+            $url = $urlGenerator->generate('view', ['name' => 'with space', 'text' => '~test'], ['param' => 'also space']);
+            $this->assertEquals('/view/with%20space/~test?param=also+space', $url);
+
+            $urlGenerator->setEncodeRaw(false);
+            $url = $urlGenerator->generate('view', ['name' => 'with space', 'text' => '~test'], ['param' => 'also space']);
+            $this->assertEquals('/view/with+space/%7Etest?param=also+space', $url);
+        }
+    }
+
+    public function testExceptionThrownIfAnyArgumentIsMissing(): void
+    {
+        $routes = [
+            Route::get('/view/:id/:value')->name('view'),
+        ];
+        $urlGenerator = $this->createUrlGenerator($routes);
+
+        $this->expectExceptionMessage(
+            'Route `view` expects at least argument values for [id,value], but received [id]'
+        );
+        $urlGenerator->generate('view', ['id' => 123]);
+    }
+
+    public function testGroupPrefixAppended(): void
+    {
+        $routes = [
+            Group::create('/api')->routes(
+                Route::get('/post')->name('post/index'),
+                Route::get('/post/:id')->name('post/view')
+            ),
+        ];
+        $urlGenerator = $this->createUrlGenerator($routes);
+
+        $url = $urlGenerator->generate('post/index');
+        $this->assertEquals('/api/post', $url);
+
+        $url = $urlGenerator->generate('post/view', ['id' => 42]);
+        $this->assertEquals('/api/post/42', $url);
+    }
+
+    public function testNestedGroupsPrefixAppended(): void
+    {
+        $routes = [
+            Group::create('/api')->routes(
+                Group::create('/v1')->routes(
+                    Route::get('/user')->name('api-v1-user/index'),
+                    Route::get('/user/:id')->name('api-v1-user/view'),
+                    Group::create('/news')->routes(
+                        Route::get('/post')->name('api-v1-news-post/index'),
+                        Route::get('/post/:id')->name('api-v1-news-post/view'),
+                    ),
+                    Group::create('/blog')->routes(
+                        Route::get('/post')->name('api-v1-blog-post/index'),
+                        Route::get('/post/:id')->name('api-v1-blog-post/view'),
+                    ),
+                    Route::get('/note')->name('api-v1-note/index'),
+                    Route::get('/note/:id')->name('api-v1-note/view')
+                )
+            ),
+        ];
+
+        $urlGenerator = $this->createUrlGenerator($routes);
+
+        $url = $urlGenerator->generate('api-v1-user/index');
+        $this->assertEquals('/api/v1/user', $url);
+
+        $url = $urlGenerator->generate('api-v1-user/view', ['id' => 42]);
+        $this->assertEquals('/api/v1/user/42', $url);
+
+        $url = $urlGenerator->generate('api-v1-news-post/index');
+        $this->assertEquals('/api/v1/news/post', $url);
+
+        $url = $urlGenerator->generate('api-v1-news-post/view', ['id' => 42]);
+        $this->assertEquals('/api/v1/news/post/42', $url);
+
+        $url = $urlGenerator->generate('api-v1-blog-post/index');
+        $this->assertEquals('/api/v1/blog/post', $url);
+
+        $url = $urlGenerator->generate('api-v1-blog-post/view', ['id' => 42]);
+        $this->assertEquals('/api/v1/blog/post/42', $url);
+
+        $url = $urlGenerator->generate('api-v1-note/index');
+        $this->assertEquals('/api/v1/note', $url);
+
+        $url = $urlGenerator->generate('api-v1-note/view', ['id' => 42]);
+        $this->assertEquals('/api/v1/note/42', $url);
+    }
+
+    public function testQueryParametersAddedAsQueryString(): void
+    {
+        $routes = [
+            Route::get('/test/:name')
+                ->name('test'),
+        ];
+
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('test', ['name' => 'post'], ['id' => 12, 'sort' => 'asc'])
+        ;
+        $this->assertEquals('/test/post?id=12&sort=asc', $url);
+    }
+
+    public function testQueryParametersAddedAsQueryStringWithEmptyValues(): void
+    {
+        $routes = [
+            Route::get('/test/:name')
+                ->name('test'),
+        ];
+
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('test', ['name' => 'post'], ['id' => null])
+        ;
+        $this->assertEquals('/test/post', $url);
+    }
+
+    public function testQueryParametersOverrideExtraArguments(): void
+    {
+        $routes = [
+            Route::get('/test/:name')->name('test'),
+        ];
+
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('test', ['name' => 'post', 'id' => 11], ['id' => 12, 'sort' => 'asc'])
+        ;
+        $this->assertEquals('/test/post?id=12&sort=asc', $url);
+    }
+
+    public function testQueryParametersMergedWithExtraArguments(): void
+    {
+        $routes = [
+            Route::get('/test/:name')->name('test'),
+        ];
+
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('test', ['name' => 'post', 'id' => 11], ['sort' => 'asc'])
+        ;
+        $this->assertEquals('/test/post?sort=asc&id=11', $url);
+    }
+
+    public function testDefaultNotUsedForOptionalArgument(): void
+    {
+        $routes = [
+            Route::get('/:name?')
+                ->name('defaults')
+                ->defaults(['name' => 'default']),
+        ];
+
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('defaults')
+        ;
+        $this->assertEquals('/', $url);
+    }
+
+    public function testValueUsedForOptionalArgument(): void
+    {
+        $routes = [
+            Route::get('/:name?')
+                ->name('defaults')
+                ->defaults(['name' => 'default']),
+        ];
+
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generate('defaults', ['name' => 'test'])
+        ;
+        $this->assertEquals('/test', $url);
+    }
+
+    public function testDefaultNotUsedForRequiredParameter(): void
+    {
+        $routes = [
+            Route::get('/:name')
+                ->name('defaults')
+                ->defaults(['name' => 'default']),
+        ];
+
+        $this->expectExceptionMessage('Route `defaults` expects at least argument values for [name], but received []');
+        $this
+            ->createUrlGenerator($routes)
+            ->generate('defaults')
+        ;
+    }
+
+    /**
+     * Host specified in generateAbsolute() should override host specified in route.
+     */
+    public function testAbsoluteUrlHostOverride(): void
+    {
+        $routes = [
+            Route::get('/home/index')->name('index')->host('http://test.com'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generateAbsolute('index', host: 'http://mysite.com')
+        ;
+
+        $this->assertEquals('http://mysite.com/home/index', $url);
+    }
+
+    /**
+     * Trailing slash in host argument of generateAbsolute() should not break URL generated.
+     */
+    public function testAbsoluteUrlHostOverrideWithTrailingSlash(): void
+    {
+        $routes = [
+            Route::get('/home/index')->name('index')->host('http://test.com'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generateAbsolute('index', [], [], host: 'http://mysite.com/')
+        ;
+
+        $this->assertEquals('http://mysite.com/home/index', $url);
+    }
+
+    /**
+     * Scheme specified in generateAbsolute() should override scheme specified in route.
+     */
+    public function testAbsoluteUrlSchemeOverrideHostInRouteScheme(): void
+    {
+        $routes = [
+            Route::get('/home/index')->name('index')->host('http://test.com'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generateAbsolute('index', scheme: 'https')
+        ;
+
+        $this->assertEquals('https://test.com/home/index', $url);
+    }
+
+    /**
+     * Scheme specified in generateAbsolute() should override scheme specified in method.
+     */
+    public function testAbsoluteUrlSchemeOverrideHostInMethodScheme(): void
+    {
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generateAbsolute('index', scheme: 'https', host: 'http://test.com')
+        ;
+
+        $this->assertEquals('https://test.com/home/index', $url);
+    }
+
+    /**
+     * Scheme specified in generateAbsolute() should override scheme specified in the matched host.
+     */
+    public function testAbsoluteUrlSchemeOverrideLastMatchedHostScheme(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', scheme: 'https')
+        ;
+
+        $this->assertEquals('https://test.com/home/index', $url);
+    }
+
+    /**
+     * If there's host specified in route, it should be used unless there's host parameter in generateAbsolute().
+     */
+    public function testAbsoluteUrlWithHostInRoute(): void
+    {
+        $routes = [
+            Route::get('/home/index')
+                ->name('index')
+                ->host('http://test.com'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('http://test.com/home/index', $url);
+    }
+
+    /**
+     * Trailing slash in route host should not break URL generated.
+     */
+    public function testAbsoluteUrlWithTrailingSlashHostInRoute(): void
+    {
+        $routes = [
+            Route::get('/home/index')
+                ->name('index')
+                ->host('http://test.com/'),
+        ];
+        $url = $this
+            ->createUrlGenerator($routes)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('http://test.com/home/index', $url);
+    }
+
+    /**
+     * Last matched host is used for absolute URL generation in case
+     * host is not specified in either route or createUrlGenerator().
+     */
+    public function testLastMatchedHostUsedForAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('http://test.com/home/index', $url);
+    }
+
+    /**
+     * If there's non-standard port used in last matched host,
+     * it should end up in the URL generated.
+     */
+    public function testLastMatchedHostWithPortUsedForAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com:8080/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('http://test.com:8080/home/index', $url);
+    }
+
+    /**
+     * Schema from route host should have more priority than schema from last matched request.
+     */
+    public function testHostInRouteWithProtocolRelativeSchemeAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index')->host('//test.com'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('//test.com/home/index', $url);
+    }
+
+    /**
+     * Schema from generateAbsolute() should have more priority than both
+     * route and last matched request.
+     */
+    public function testHostInMethodWithProtocolRelativeSchemeAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index')->host('//mysite.com'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', host: '//test.com')
+        ;
+
+        $this->assertEquals('//test.com/home/index', $url);
+    }
+
+    public function testHostInRouteProtocolRelativeSchemeAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index')->host('http://test.com'),
+            Route::get('/home/view')->name('view')->host('test.com'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url1 = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', scheme: '')
+        ;
+        $url2 = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('view', scheme: '')
+        ;
+
+        $this->assertEquals('//test.com/home/index', $url1);
+        $this->assertEquals('//test.com/home/view', $url2);
+    }
+
+    public function testHostInMethodProtocolRelativeSchemeAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index')->host('//mysite.com'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url1 = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', scheme: '', host: 'http://test.com')
+        ;
+        $url2 = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', scheme: '', host: 'test.com')
+        ;
+        $url3 = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', host: 'http://test.com')
+        ;
+        $url4 = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', host: 'test.com')
+        ;
+
+        $this->assertEquals('//test.com/home/index', $url1);
+        $this->assertEquals('//test.com/home/index', $url2);
+        $this->assertEquals('http://test.com/home/index', $url3);
+        $this->assertEquals('http://test.com/home/index', $url4);
+    }
+
+    public function testLastMatchedHostProtocolRelativeSchemeAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index', scheme: '')
+        ;
+
+        $this->assertEquals('//test.com/home/index', $url);
+    }
+
+    public function testHostInRouteWithoutSchemeAbsoluteUrl(): void
+    {
+        $request = new ServerRequest('GET', 'http://example.com/home/index');
+        $routes = [
+            Route::get('/home/index')
+                ->name('index')
+                ->host('example.com'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('//example.com/home/index', $url);
+
+        $currentRoute->setUri($request->getUri());
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('http://example.com/home/index', $url);
+    }
+
+    public function testFallbackAbsoluteUrl(): void
+    {
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $url = $this
+            ->createUrlGenerator($routes, $currentRoute)
+            ->generateAbsolute('index')
+        ;
+
+        $this->assertEquals('/home/index', $url);
+    }
+
+    public function testWithDefaults(): void
+    {
+        $routes = [
+            Route::get('/{_locale}/home/index')->name('index'),
+        ];
+
+        $urlGenerator = $this->createUrlGenerator($routes);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+        $url = $urlGenerator->generate('index');
+
+        $this->assertEquals('/uz/home/index', $url);
+    }
+
+    public function testWithDefaultsOverride(): void
+    {
+        $routes = [
+            Route::get('/{_locale}/home/index')->name('index'),
+        ];
+
+        $urlGenerator = $this->createUrlGenerator($routes);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+        $url = $urlGenerator->generate('index', ['_locale' => 'ru']);
+
+        $this->assertEquals('/ru/home/index', $url);
+    }
+
+    public function testAbsoluteWithDefaults(): void
+    {
+        $request = new ServerRequest('GET', 'http://example.com/home/index');
+
+        $routes = [
+            Route::get('/{_locale}/home/index')->name('index'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $urlGenerator = $this->createUrlGenerator($routes, $currentRoute);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $url = $urlGenerator->generateAbsolute('index');
+
+        $this->assertEquals('http://example.com/uz/home/index', $url);
+    }
+
+    public function testAbsoluteWithDefaultsOverride(): void
+    {
+        $request = new ServerRequest('GET', 'http://example.com/home/index');
+
+        $routes = [
+            Route::get('/{_locale}/home/index')->name('index'),
+        ];
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $urlGenerator = $this->createUrlGenerator($routes, $currentRoute);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $url = $urlGenerator->generateAbsolute('index', ['_locale' => 'ru']);
+
+        $this->assertEquals('http://example.com/ru/home/index', $url);
+    }
+
+    /**
+     * @param array<string, mixed> $routeArguments
+     * @param array<string, mixed> $defaultArgument
+     * @param array<string, mixed> $replacedArguments
+     * @param array<string, mixed> $queryParameters
+     */
+    #[DataProvider('currentRouteArgumentsProvider')]
+    public function testGenerateFromCurrentWithArguments(
+        string $uri,
+        string $expectedUrl,
+        Route $route,
+        array $routeArguments,
+        array $defaultArgument,
+        array $replacedArguments,
+        array $queryParameters = []
+    ): void {
+        $request = new ServerRequest('GET', $uri);
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $currentRoute->setRouteWithArguments($route, $routeArguments);
+        $urlGenerator = $this->createUrlGenerator([$route], $currentRoute);
+        if ([] !== $defaultArgument) {
+            /** @var array<int, string> $defaultArgument */
+            $argName = $defaultArgument[0];
+            $urlGenerator->setDefaultArgument($argName, $defaultArgument[1]);
+        }
+
+        $url = $urlGenerator->generateFromCurrent($replacedArguments, $queryParameters);
+
+        $this->assertEquals($expectedUrl, $url);
+    }
+
+    /**
+     * @return array<int, array{
+     *     0: string,
+     *     1: string,
+     *     2: Route,
+     *     3: array<string, mixed>,
+     *     4: array<mixed>,
+     *     5: array<string, mixed>,
+     *     6?: array<string, mixed>
+     *         }>
+     */
+    public static function currentRouteArgumentsProvider(): array
+    {
+        return [
+            [
+                'http://example.com/en/home/index',
+                '/home/index',
+                Route::get('/home/index')->name('index'),
+                [],
+                [],
+                [],
+            ],
+            [
+                'http://example.com/en/home/index',
+                '/en/home/index',
+                Route::get('/{_locale}/home/index')->name('index'),
+                ['_locale' => 'en'],
+                [],
+                [],
+            ],
+            [
+                'http://example.com/en/home/index',
+                '/uz/home/index',
+                Route::get('/{_locale}/home/index')->name('index'),
+                [],
+                ['_locale', 'uz'],
+                [],
+            ],
+            [
+                'http://example.com/en/home/index',
+                '/en/home/index',
+                Route::get('/{_locale}/home/index')->name('index'),
+                ['_locale' => 'en'],
+                ['_locale', 'en'],
+                [],
+            ],
+            [
+                'http://example.com/en/home/index',
+                '/ru/home/index',
+                Route::get('/{_locale}/home/index')->name('index'),
+                ['_locale' => 'en'],
+                ['_locale', 'uz'],
+                ['_locale' => 'ru'],
+            ],
+            [
+                'http://example.com/en/home/index?test=1',
+                '/ru/home/index?test=1',
+                Route::get('/{_locale}/home/index')->name('index'),
+                ['_locale' => 'en'],
+                ['_locale', 'uz'],
+                ['_locale' => 'ru'],
+            ],
+            [
+                'http://example.com/en/home/index?test=1',
+                '/ru/home/index?test=2',
+                Route::get('/{_locale}/home/index')->name('index'),
+                ['_locale' => 'en'],
+                ['_locale', 'uz'],
+                ['_locale' => 'ru'],
+                ['test' => 2],
+            ],
+        ];
+    }
+
+    public function testGenerateFromCurrentWithFallbackRoute(): void
+    {
+        $request = new ServerRequest('GET', 'http://example.com/en/home/index');
+        $route = Route::get('/{_locale}/home/index')->name('index');
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $urlGenerator = $this->createUrlGenerator([$route], $currentRoute);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $url = $urlGenerator->generateFromCurrent(['_locale' => 'ru'], fallbackRouteName: 'index');
+
+        $this->assertEquals('/ru/home/index', $url);
+    }
+
+    public function testGenerateFromCurrentWithFallbackRouteWithoutCurrentRoute(): void
+    {
+        $route = Route::get('/{_locale}/home/index')->name('index');
+
+        $urlGenerator = $this->createUrlGenerator([$route], null);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $url = $urlGenerator->generateFromCurrent(['_locale' => 'ru'], fallbackRouteName: 'index');
+
+        $this->assertEquals('/ru/home/index', $url);
+    }
+
+    public function testGenerateFromCurrentWithFallbackRouteWithEmptyCurrentRoute(): void
+    {
+        $route = Route::get('/{_locale}/home/index')->name('index');
+
+        $currentRoute = new CurrentRoute();
+        $urlGenerator = $this->createUrlGenerator([$route], $currentRoute);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $url = $urlGenerator->generateFromCurrent(['_locale' => 'ru'], fallbackRouteName: 'index');
+
+        $this->assertEquals('/ru/home/index', $url);
+    }
+
+    public function testGenerateFromCurrentWithoutFallbackRoute(): void
+    {
+        $request = new ServerRequest('GET', 'http://example.com/en/home/index');
+        $route = Route::get('/{_locale}/home/index')->name('index');
+
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $urlGenerator = $this->createUrlGenerator([$route], $currentRoute);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $url = $urlGenerator->generateFromCurrent(['_locale' => 'ru']);
+
+        $this->assertEquals('/en/home/index', $url);
+    }
+
+    public function testGenerateFromCurrentWithoutFallbackRouteWithEmptyCurrentRoute(): void
+    {
+        $route = Route::get('/{_locale}/home/index')->name('index');
+
+        $currentRoute = new CurrentRoute();
+        $urlGenerator = $this->createUrlGenerator([$route], $currentRoute);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Current route is not detected.');
+        $url = $urlGenerator->generateFromCurrent(['_locale' => 'ru']);
+
+        $this->assertEquals('/ru/home/index', $url);
+    }
+
+    public function testGenerateFromCurrentWithoutFallbackRouteWithoutCurrentRoute(): void
+    {
+        $route = Route::get('/{_locale}/home/index')->name('index');
+
+        $currentRoute = new CurrentRoute();
+        $urlGenerator = $this->createUrlGenerator([$route], $currentRoute);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Current route is not detected.');
+        $url = $urlGenerator->generateFromCurrent(['_locale' => 'ru']);
+
+        $this->assertEquals('/ru/home/index', $url);
+    }
+
+    public function testGetUriPrefix(): void
+    {
+        $prefix = '/test';
+
+        $urlGenerator = $this->createUrlGenerator([]);
+        $urlGenerator->setUriPrefix($prefix);
+
+        $this->assertSame($prefix, $urlGenerator->getUriPrefix());
+    }
+
+    public function testNotFoundRoutes(): void
+    {
+        $routes = [
+            Route::get('/home/index')->name('index'),
+        ];
+
+        $urlGenerator = $this->createUrlGenerator($routes, null);
+
+        $this->expectException(RouteNotFoundException::class);
+        $this->expectExceptionMessage('Cannot generate URI for route "not-found"; route not found');
+        $urlGenerator->generate('not-found');
+    }
+
+    public function testDefaultHostAndScheme(): void
+    {
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([Route::get('/home/index')->name('index')]),
+            scheme: 'https',
+            host: 'example.com',
+        );
+
+        $url = $urlGenerator->generateAbsolute('index');
+
+        $this->assertSame('https://example.com/home/index', $url);
+    }
+
+    public function testOverrideDefaultHostAndSchemeFromMethodArguments(): void
+    {
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([Route::get('/home/index')->name('index')]),
+            scheme: 'https',
+            host: 'example.com',
+        );
+
+        $url = $urlGenerator->generateAbsolute('index', scheme: 'http', host: 'example.yii');
+
+        $this->assertSame('http://example.yii/home/index', $url);
+    }
+
+    public function testOverrideDefaultHostAndSchemeFromRoute(): void
+    {
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([
+                Route::get('/home/index')
+                    ->host('//test.yii')
+                    ->name('index'),
+            ]),
+            scheme: 'https',
+            host: 'example.com',
+        );
+
+        $url = $urlGenerator->generateAbsolute('index');
+
+        $this->assertSame('//test.yii/home/index', $url);
+    }
+
+    public function testDefaultHostAndSchemeWithUri(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([Route::get('/home/index')->name('index')]),
+            $currentRoute,
+            scheme: 'https',
+            host: 'example.com',
+        );
+
+        $url = $urlGenerator->generateAbsolute('index');
+
+        $this->assertSame('https://example.com/home/index', $url);
+    }
+
+    public function testGenerateHash(): void
+    {
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([Route::get('/home/index')->name('index')]),
+            new CurrentRoute(),
+        );
+
+        $url = $urlGenerator->generate('index', hash: 'test');
+
+        $this->assertSame('/home/index#test', $url);
+    }
+
+    public function testGenerateAbsoluteHash(): void
+    {
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([Route::get('/home/index')->name('index')]),
+            new CurrentRoute(),
+            scheme: 'https',
+            host: 'example.com',
+        );
+
+        $url = $urlGenerator->generateAbsolute('index', hash: 'test');
+
+        $this->assertSame('https://example.com/home/index#test', $url);
+    }
+
+    public function testGenerateFromCurrentHash(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $route = Route::get('/home/index')->name('index');
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+        $currentRoute->setRouteWithArguments($route, []);
+
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([$route]),
+            $currentRoute,
+        );
+
+        $url = $urlGenerator->generateFromCurrent([], hash: 'test');
+
+        $this->assertSame('/home/index#test', $url);
+    }
+
+    public function testGenerateFromCurrentHashWithFallbackRoute(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $route = Route::get('/blog/posts')->name('blog');
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([$route]),
+            $currentRoute,
+        );
+
+        $url = $urlGenerator->generateFromCurrent([], hash: 'test', fallbackRouteName: 'blog');
+
+        $this->assertSame('/blog/posts#test', $url);
+    }
+
+    public function testGenerateFromCurrentHashWithoutRoute(): void
+    {
+        $request = new ServerRequest('GET', 'http://test.com/home/index');
+        $route = Route::get('/blog/posts')->name('blog');
+        $currentRoute = new CurrentRoute();
+        $currentRoute->setUri($request->getUri());
+
+        $urlGenerator = new UrlGenerator(
+            $this->createRouteCollection([$route]),
+            $currentRoute,
+        );
+
+        $url = $urlGenerator->generateFromCurrent([], hash: 'test');
+
+        $this->assertSame('/home/index#test', $url);
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     */
+    #[TestWith(['/blog/page', []])]
+    #[TestWith(['/blog/page', ['page' => null]])]
+    #[TestWith(['/blog/page/2', ['page' => 2]])]
+    public function testOptionalArguments(string $expected, array $arguments): void
+    {
+        $urlGenerator = new UrlGenerator(
+            new RouteCollection(
+                (new RouteCollector())->addRoute(
+                    Route::get('/blog/page/:page?')->name('blog'),
+                ),
+            ),
+        );
+
+        $url = $urlGenerator->generate('blog', $arguments);
+
+        $this->assertSame($expected, $url);
+    }
+
+    public function testOptionalArgumentsEdgeCase(): void
+    {
+        $urlGenerator = new UrlGenerator(
+            new RouteCollection(
+                (new RouteCollector())->addRoute(
+                    Route::get('/blog/:category/:page?')->name('blog'),
+                ),
+            ),
+        );
+
+        $url = $urlGenerator->generate('blog', [
+            'page' => null,
+            'category' => 'news',
+        ]);
+
+        $this->assertSame('/blog/news', $url);
+    }
+
+    public function testLocaleWithRadixFormat(): void
+    {
+        $routes = [
+            Route::get('/{_locale}/home/index')->name('index'),
+        ];
+
+        $urlGenerator = $this->createUrlGenerator($routes);
+        $urlGenerator->setDefaultArgument('_locale', 'uz');
+        $url = $urlGenerator->generate('index');
+
+        $this->assertEquals('/uz/home/index', $url);
+    }
+
+    /**
+     * @param array<int, Group|Route> $routes
+     */
+    private function createUrlGenerator(array $routes, ?CurrentRoute $currentRoute = null): UrlGeneratorInterface
+    {
+        $routeCollection = $this->createRouteCollection($routes);
+
+        return new UrlGenerator($routeCollection, $currentRoute);
+    }
+
+    /**
+     * @param array<int, Group|Route> $routes
+     */
+    private function createRouteCollection(array $routes): RouteCollectionInterface
+    {
+        $rootGroup = Group::create()->routes(...$routes);
+        $collector = new RouteCollector();
+        $collector->addRoute($rootGroup);
+
+        return new RouteCollection($collector);
+    }
+}

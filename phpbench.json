@@ -1,0 +1,11 @@
+{
+    "$schema": "./vendor/phpbench/phpbench/phpbench.schema.json",
+    "runner.bootstrap": "vendor/autoload.php",
+    "runner.path": "benchmarks",
+    "report.outputs": {
+        "default": {
+            "extends": "aggregate",
+            "title": "Yii RadixRouter Benchmarks"
+        }
+    }
+}
