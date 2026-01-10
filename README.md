@@ -1,8 +1,10 @@
 # Yii Radix Router Adapter
 
-[![Latest Stable Version](https://poser.pugx.org/sirix/yii-radixrouter/v/stable)](https://packagist.org/packages/sirix/yii-radixrouter)
-[![Total Downloads](https://poser.pugx.org/sirix/yii-radixrouter/downloads)](https://packagist.org/packages/sirix/yii-radixrouter)
-[![License](https://poser.pugx.org/sirix/yii-radixrouter/license)](https://packagist.org/packages/sirix/yii-radixrouter)
+[![Latest Stable Version](http://poser.pugx.org/sirix/yii-radixrouter/v)](https://packagist.org/packages/sirix/yii-radixrouter) 
+[![Total Downloads](http://poser.pugx.org/sirix/yii-radixrouter/downloads)](https://packagist.org/packages/sirix/yii-radixrouter) 
+[![Latest Unstable Version](http://poser.pugx.org/sirix/yii-radixrouter/v/unstable)](https://packagist.org/packages/sirix/yii-radixrouter) 
+[![License](http://poser.pugx.org/sirix/yii-radixrouter/license)](https://packagist.org/packages/sirix/yii-radixrouter) 
+[![PHP Version Require](http://poser.pugx.org/sirix/yii-radixrouter/require/php)](https://packagist.org/packages/sirix/yii-radixrouter)
 
 A high-performance Radix Tree based router implementation for the Yii Framework (Yii3), using the [wilaak/radix-router](https://github.com/wilaak/php-radix-router) under the hood.
 
