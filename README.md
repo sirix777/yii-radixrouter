@@ -6,7 +6,7 @@
 [![License](http://poser.pugx.org/sirix/yii-radixrouter/license)](https://packagist.org/packages/sirix/yii-radixrouter) 
 [![PHP Version Require](http://poser.pugx.org/sirix/yii-radixrouter/require/php)](https://packagist.org/packages/sirix/yii-radixrouter)
 
-A high-performance Radix Tree based router implementation for the Yii Framework (Yii3), using the [wilaak/radix-router](https://github.com/wilaak/php-radix-router) under the hood.
+A high-performance Radix Tree based router implementation for the Yii Framework (Yii3), using the [wilaak/radix-router](https://github.com/wilaak/radix-router) under the hood.
 
 This package is based on the [yiisoft/router-fastroute](https://github.com/yiisoft/router-fastroute) implementation.
 
@@ -84,6 +84,54 @@ return [
     ],
 ];
 ```
+
+## Benchmarks
+
+Performance benchmarks comparing Radix Router against FastRoute are available in the `benchmarks-comparison` directory. These benchmarks are adapted from the excellent work of [wilaak/radix-router](https://github.com/wilaak/radix-router) by [@wilaak](https://github.com/wilaak).
+
+### Quick Start
+
+```bash
+cd benchmark-comparison
+composer install
+php bench.php --all
+```
+
+### Available Test Suites
+
+| Suite | Routes | Description |
+|-------|--------|-------------|
+| `simple` | 33 | Basic static and parameterized routes |
+| `avatax` | 256 | Real-world API routes from Avatax |
+| `bitbucket` | 177 | Real-world API routes from Bitbucket |
+| `huge` | 500 | Randomly generated complex routes |
+
+### Available PHP Modes
+
+| Mode | Description |
+|------|-------------|
+| `JIT=tracing` | PHP with JIT compiler (tracing mode) |
+| `OPcache` | PHP with OPcache enabled |
+| `No OPcache` | PHP without any optimizations |
+
+### Run Commands
+
+```bash
+# Run all benchmarks
+php bench.php --all
+
+# Run specific suite
+php bench.php --suite=simple
+
+# Run specific mode
+php bench.php --mode="JIT=tracing"
+
+# Run specific routers
+php bench.php --router=YiiRadixRouterAdapter,YiiRadixRouterCachedAdapter
+```
+
+For detailed methodology and more information, see [benchmark-comparison/README.md](benchmark-comparison/README.md).
+
 
 ## License
 

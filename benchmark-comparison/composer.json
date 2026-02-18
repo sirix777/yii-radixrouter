@@ -1,0 +1,39 @@
+{
+    "name": "sirix/benchmark-comparison",
+    "description": "Benchmark comparison: yii-radixrouter vs yiisoft/router-fastroute",
+    "license": "MIT",
+    "type": "project",
+    "require": {
+        "php": "8.2 - 8.5",
+        "psr/http-message": "^1.0 || ^2.0",
+        "psr/simple-cache": "^2.0 || ^3.0",
+        "sirix/yii-radixrouter": "^1.0",
+        "yiisoft/router": "^4.0",
+        "yiisoft/router-fastroute": "^4.0",
+        "yiisoft/cache": "^3.2",
+        "yiisoft/cache-file": "^3.2",
+        "nyholm/psr7": "^1.8"
+    },
+    "autoload": {
+        "psr-4": {
+            "Sirix\\Router\\RadixRouter\\BenchmarkComparison\\": "Routers"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "bench": "php bench.php",
+        "bench:all": "php bench.php --all",
+        "bench:simple": "php bench.php --suite=simple",
+        "bench:avatax": "php bench.php --suite=avatax",
+        "bench:bitbucket": "php bench.php --suite=bitbucket",
+        "bench:huge": "php bench.php --suite=huge",
+        "bench:radix": "php bench.php --router=YiiRadixRouterAdapter",
+        "bench:radix-cached": "php bench.php --router=YiiRadixRouterCachedAdapter",
+        "bench:fastroute": "php bench.php --router=FastRouteAdapter",
+        "bench:fastroute-cached": "php bench.php --router=FastRouteCachedAdapter",
+        "bench:jit": "php bench.php --mode=JIT=tracing",
+        "bench:opcache": "php bench.php --mode=OPcache",
+        "bench:no-opcache": "php bench.php --mode=\"No OPcache\""
+    }
+}
