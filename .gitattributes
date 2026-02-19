@@ -30,7 +30,7 @@
 /tests                      export-ignore
 /tools                      export-ignore
 /benchmarks                 export-ignore
-/benchmarks-comparison      export-ignore
+/benchmark-comparison       export-ignore
 /phpbench.json              export-ignore
 /phpstan.neon               export-ignore
 /composer.lock              export-ignore

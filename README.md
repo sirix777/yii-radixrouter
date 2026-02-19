@@ -138,27 +138,33 @@ php bench.php --router=YiiRadixRouterAdapter,YiiRadixRouterCachedAdapter
 > [!NOTE]
 > Benchmark results may vary depending on hardware, PHP version, OS configuration, and other environment factors.
 
+> [!NOTE]
+> These benchmarks were run inside a virtualization environment on a running machine. This cannot be considered a full test bench as resources are shared among all containers. Results may vary compared to dedicated hardware.
+
+### Environment
+
+- **CPU**: 8 × Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz
+- **Memory**: 64Gb
+- **PHP**: 8.2.29
+
 #### simple (33 routes)
-
-Performance on **8 × 11th Gen Intel® Core™ i7-1165G7 @ 2.80GHz** with **16Gb** memory:
-
 | Rank | Router                       | Mode               | Lookups/sec   | Mem (KB)   | Register (ms)   |
 |------|------------------------------|--------------------|---------------|------------|-----------------|
-|    1 | **YiiRadixRouterPhpCache**   | JIT=tracing        |       902,589 |      321.1 |           0.138 |
-|    2 | **YiiRadixRouterCached**     | JIT=tracing        |       874,764 |      477.2 |           0.334 |
-|    3 | **YiiRadixRouter**           | JIT=tracing        |       809,893 |      568.6 |           0.264 |
-|    4 | **YiiRadixRouterPhpCache**   | OPcache            |       588,295 |       63.5 |           0.142 |
-|    5 | **YiiRadixRouter**           | OPcache            |       562,243 |      127.7 |           0.319 |
-|    6 | **YiiRadixRouterCached**     | OPcache            |       561,496 |      193.1 |           0.342 |
-|    7 | **YiiRadixRouterCached**     | No OPcache         |       510,513 |      774.3 |           2.908 |
-|    8 | **YiiRadixRouter**           | No OPcache         |       506,440 |      653.7 |           2.402 |
-|    9 | **YiiRadixRouterPhpCache**   | No OPcache         |       495,544 |      672.7 |           2.417 |
-|   10 | **YiiFastRouteCached**       | JIT=tracing        |       366,698 |      213.7 |           0.227 |
-|   11 | **YiiFastRouteCached**       | OPcache            |       274,248 |       99.4 |           0.232 |
-|   12 | **YiiFastRouteCached**       | No OPcache         |       264,178 |      659.4 |           2.842 |
-|   13 | **YiiFastRoute**             | JIT=tracing        |        81,639 |      269.8 |           0.301 |
-|   14 | **YiiFastRoute**             | OPcache            |        60,548 |      101.3 |           0.360 |
-|   15 | **YiiFastRoute**             | No OPcache         |        59,739 |      610.8 |           2.537 |
+|    1 | **YiiRadixRouterPhpCache**   | JIT=tracing        |     1,062,161 |       65.1 |           0.094 |
+|    2 | **YiiRadixRouterCached**     | JIT=tracing        |     1,038,986 |      196.9 |           0.243 |
+|    3 | **YiiRadixRouter**           | JIT=tracing        |     1,026,673 |      211.8 |           0.177 |
+|    4 | **YiiRadixRouterCached**     | OPcache            |       661,535 |      193.3 |           0.295 |
+|    5 | **YiiRadixRouterPhpCache**   | OPcache            |       661,076 |       63.5 |           0.144 |
+|    6 | **YiiRadixRouter**           | OPcache            |       625,778 |      127.7 |           0.200 |
+|    7 | **YiiRadixRouter**           | No OPcache         |       594,685 |      649.2 |           1.510 |
+|    8 | **YiiRadixRouterCached**     | No OPcache         |       585,544 |      769.8 |           2.167 |
+|    9 | **YiiRadixRouterPhpCache**   | No OPcache         |       567,784 |      668.0 |           1.540 |
+|   10 | **YiiFastRouteCached**       | JIT=tracing        |       546,878 |      102.4 |           0.224 |
+|   11 | **YiiFastRouteCached**       | OPcache            |       429,623 |       99.1 |           0.191 |
+|   12 | **YiiFastRouteCached**       | No OPcache         |       406,177 |      656.9 |           2.135 |
+|   13 | **YiiFastRoute**             | JIT=tracing        |       116,380 |      181.2 |           0.221 |
+|   14 | **YiiFastRoute**             | No OPcache         |        89,250 |      608.1 |           1.806 |
+|   15 | **YiiFastRoute**             | OPcache            |        89,037 |      100.9 |           0.266 |
 
 For detailed methodology, full results for all suites (`avatax`, `bitbucket`, `huge`), and more information, see [benchmark-comparison/README.md](benchmark-comparison/README.md).
 
