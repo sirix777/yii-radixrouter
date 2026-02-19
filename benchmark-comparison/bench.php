@@ -4,6 +4,8 @@ require __DIR__ . "/vendor/autoload.php";
 
 use Sirix\Router\RadixRouter\BenchmarkComparison\YiiRadixRouterAdapter;
 use Sirix\Router\RadixRouter\BenchmarkComparison\YiiRadixRouterCachedAdapter;
+use Sirix\Router\RadixRouter\BenchmarkComparison\YiiRadixRouterIgbinaryAdapter;
+use Sirix\Router\RadixRouter\BenchmarkComparison\YiiRadixRouterPhpCacheAdapter;
 use Sirix\Router\RadixRouter\BenchmarkComparison\FastRouteAdapter;
 use Sirix\Router\RadixRouter\BenchmarkComparison\FastRouteCachedAdapter;
 
@@ -29,7 +31,7 @@ function startWebServer($port, $phpOpts = "")
         if (@file_get_contents($url) !== false) {
             return $pid;
         }
-        usleep(100000);
+        usleep(100_000);
     }
     if ($pid) {
         exec("kill " . $pid . " > /dev/null 2>&1");
@@ -49,7 +51,7 @@ function runBenchmark(
     $port,
     $suite,
     $routerClass,
-    $iterations = 1000000,
+    $iterations = 1_000_000,
     $duration = 1,
 ) {
     $params = [
@@ -214,7 +216,7 @@ function printCombinedBenchmarkTable(array $results): void
     foreach ($results as $row) {
         $bySuite[$row["suite"]][] = $row;
     }
-    $trophies = ["🏆", "🥈", "🥉"];
+
     foreach ($bySuite as $suite => $suiteRows) {
         $routesCount = getTestSuiteRoutesLength($suite);
         echo "\n#### $suite ($routesCount routes)\n";
@@ -225,8 +227,7 @@ function printCombinedBenchmarkTable(array $results): void
             fn($a, $b) => $b["lookups_per_second"] <=> $a["lookups_per_second"],
         );
         foreach ($suiteRows as $i => $row) {
-            $trophy = $i < 3 ? " " . $trophies[$i] : "";
-            $routerBold = $trophy . " " . "**" . $row["router"] . "**";
+            $routerBold = "**" . $row["router"] . "**";
             printf(
                 "| %4s | %-28s | %-18s | %13s | %10.1f | %15.3f |\n",
                 $i + 1,
@@ -259,6 +260,7 @@ $cliSuites = ["simple", "avatax", "bitbucket", "huge"];
 $cliRouters = [
     "YiiRadixRouterAdapter" => YiiRadixRouterAdapter::class,
     "YiiRadixRouterCachedAdapter" => YiiRadixRouterCachedAdapter::class,
+    "YiiRadixRouterPhpCacheAdapter" => YiiRadixRouterPhpCacheAdapter::class,
     "FastRouteAdapter" => FastRouteAdapter::class,
     "FastRouteCachedAdapter" => FastRouteCachedAdapter::class,
 ];

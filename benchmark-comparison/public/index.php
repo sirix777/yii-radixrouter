@@ -1,11 +1,12 @@
 <?php
 
+use Nyholm\Psr7\ServerRequest;
+use Sirix\Router\RadixRouter\BenchmarkComparison\BenchmarkRequest;
+
 $suite = $_GET["suite"] ?? null;
 $routerClass = $_GET["router"] ?? null;
 $iterations = isset($_GET["iterations"]) ? (int) $_GET["iterations"] : null;
-$benchmarkDuration = isset($_GET["duration"])
-    ? (float) $_GET["duration"]
-    : null;
+$benchmarkDuration = isset($_GET["duration"]) ? (float) $_GET["duration"] : null;
 
 if (!$suite || !$routerClass) {
     header("Content-Type: application/json; charset=utf-8");
@@ -18,22 +19,19 @@ if (!$suite || !$routerClass) {
     echo json_encode([
         "error" => "Invalid parameters",
         "reason" => $reason,
-        "usage" =>
-            "?suite={suite_name}&router={router_class}&[iterations=N]&[duration=SECONDS]",
+        "usage" => "?suite={suite_name}&router={router_class}&[iterations=N]&[duration=SECONDS]",
     ]);
     exit(1);
 }
 
 header("Content-Type: application/json");
 
-$registerStart = \microtime(true);
+$memoryBaseline = memory_get_usage();
 
 require __DIR__ . "/../vendor/autoload.php";
 
 $router = new $routerClass();
 $routerName = $routerClass::details()["name"];
-
-$adaptStart = \microtime(true);
 
 $routes = require __DIR__ . "/../routes/$suite.php";
 
@@ -45,25 +43,21 @@ $router->mount(__DIR__ . "/../cache/{$routerName}_$suite");
 
 $adaptedRoutes = $router->adapt($routes);
 $routeCount = count($routes);
+$shuffledRoutes = $routes;
+shuffle($shuffledRoutes);
 
-$adaptEnd = \microtime(true);
-$adaptTime = $adaptEnd - $adaptStart;
+// Warmup autoload and structures before starting registration measurement
+$testRequest = new ServerRequest('GET', '/');
 
-$memoryBaseline = memory_get_usage();
-
-$memoryUsedAfterAdapt = memory_get_usage() - $memoryBaseline;
-
+$registerStart = \microtime(true);
 $router->register($adaptedRoutes);
-
-$index = 50 % $routeCount;
-$path = $routes[$index];
-$router->lookup($path);
-
-gc_collect_cycles();
-
+// Include the first lookup (lazy init/build/restore)
+$benchRequest = new BenchmarkRequest();
+$benchRequest->setPath($routes[0]);
+$router->match($benchRequest);
 $registerEnd = \microtime(true);
+
 $registerTimeMs = ($registerEnd - $registerStart) * 1000;
-$registerTimeMs = $registerTimeMs - $adaptTime * 1000;
 
 memory_reset_peak_usage();
 
@@ -75,8 +69,8 @@ if ($iterations !== null && $iterations > 0) {
 
     for ($i = 0; $i < $iterations; $i++) {
         $index = $i % $routeCount;
-        $path = $routes[$index];
-        $router->lookup($path);
+        $benchRequest->setPath($shuffledRoutes[$index]);
+        $router->match($benchRequest);
     }
     $end = \microtime(true);
 
@@ -84,7 +78,7 @@ if ($iterations !== null && $iterations > 0) {
     $totalIterations = $iterations;
 } else {
     $benchmarkDuration = $benchmarkDuration > 0 ? $benchmarkDuration : 1.0;
-    $batchSize = 10000;
+    $batchSize = 10_000;
 
     $start = \microtime(true);
 
@@ -92,8 +86,8 @@ if ($iterations !== null && $iterations > 0) {
     while ($end - $start < $benchmarkDuration) {
         for ($i = 0; $i < $batchSize; $i++) {
             $index = ($totalIterations + $i) % $routeCount;
-            $path = $routes[$index];
-            $router->lookup($path);
+            $benchRequest->setPath($shuffledRoutes[$index]);
+            $router->match($benchRequest);
         }
         $totalIterations += $batchSize;
 
@@ -105,8 +99,8 @@ if ($iterations !== null && $iterations > 0) {
 
 $lookupsPerSecond = $duration > 0 ? $totalIterations / $duration : 0;
 
-$actualPeakMemory = memory_get_peak_usage() - $memoryBaseline - $memoryUsedAfterAdapt;
-$actualMemory = memory_get_usage() - $memoryBaseline - $memoryUsedAfterAdapt;
+$actualPeakMemory = memory_get_peak_usage() - $memoryBaseline;
+$actualMemory = memory_get_usage() - $memoryBaseline;
 
 $result = [
     "router" => $routerName,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Sirix\Router\RadixRouter\BenchmarkComparison;
 
 use Nyholm\Psr7\ServerRequest;
+use Psr\Http\Message\ServerRequestInterface;
 use RuntimeException;
 use Yiisoft\Router\FastRoute\UrlMatcher;
 use Yiisoft\Router\Route;
@@ -51,6 +52,17 @@ class FastRouteAdapter implements RouterInterface
         $result = $this->matcher->match($request);
         if (!$result->isSuccess()) {
             throw new RuntimeException("Route not found: $path");
+        }
+    }
+
+    public function match(ServerRequestInterface $request): void
+    {
+        if ($this->matcher === null) {
+            throw new RuntimeException('Router not initialized');
+        }
+        $result = $this->matcher->match($request);
+        if (!$result->isSuccess()) {
+            throw new RuntimeException('Route not found: ' . $request->getUri()->getPath());
         }
     }
 

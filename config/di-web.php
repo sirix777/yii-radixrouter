@@ -10,10 +10,11 @@ use Yiisoft\Router\UrlMatcherInterface;
 
 return [
     UrlMatcherInterface::class => static function (Injector $injector) use ($params) {
-        $enableCache = $params['sirix/yii-radixrouter']['enableCache'] ?? true;
-        $encodeRaw = $params['sirix/yii-radixrouter']['encodeRaw'] ?? true;
+        $config = $params['sirix/yii-radixrouter'] ?? [];
+        $enableCache = $config['enableCache'] ?? true;
+        $encodeRaw = $config['encodeRaw'] ?? true;
 
-        $arguments = [];
+        $arguments = ['config' => $config];
         if ($enableCache === false) {
             $arguments['cache'] = null;
         }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Sirix\Router\RadixRouter\BenchmarkComparison;
 
+use Psr\Http\Message\ServerRequestInterface;
+
 interface RouterInterface
 {
     public function mount(string $tmpFile): void;
@@ -13,6 +15,8 @@ interface RouterInterface
     public function register(array $adaptedRoutes): void;
 
     public function lookup(string $path): void;
+
+    public function match(ServerRequestInterface $request): void;
 
     public static function details(): array;
 }

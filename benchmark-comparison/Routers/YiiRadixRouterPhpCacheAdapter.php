@@ -6,14 +6,14 @@ namespace Sirix\Router\RadixRouter\BenchmarkComparison;
 
 use Nyholm\Psr7\ServerRequest;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\SimpleCache\InvalidArgumentException;
 use RuntimeException;
-use Yiisoft\Cache\File\FileCache;
-use Yiisoft\Router\FastRoute\UrlMatcher;
+use Sirix\Router\RadixRouter\UrlMatcher;
 use Yiisoft\Router\Route;
 use Yiisoft\Router\RouteCollector;
 use Yiisoft\Router\RouteCollection;
 
-class FastRouteCachedAdapter implements RouterInterface
+class YiiRadixRouterPhpCacheAdapter implements RouterInterface
 {
     private ?RouteCollector $collector = null;
     private ?UrlMatcher $matcher = null;
@@ -21,7 +21,7 @@ class FastRouteCachedAdapter implements RouterInterface
 
     public function mount(string $tmpFile): void
     {
-        $this->cacheFile = $tmpFile;
+        $this->cacheFile = $tmpFile . '.php';
     }
 
     public function adapt(array $routes): array
@@ -29,6 +29,9 @@ class FastRouteCachedAdapter implements RouterInterface
         return $routes;
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function register(array $adaptedRoutes): void
     {
         $this->collector = new RouteCollector();
@@ -45,8 +48,11 @@ class FastRouteCachedAdapter implements RouterInterface
 
         $this->matcher = new UrlMatcher(
             $collection,
-            new FileCache($this->cacheFile),
-            [UrlMatcher::CONFIG_CACHE_KEY => 'routes-cache']
+            null,
+            [
+                UrlMatcher::CONFIG_USE_PHP_CACHE => true,
+                UrlMatcher::CONFIG_PHP_CACHE_PATH => $this->cacheFile,
+            ]
         );
     }
 
@@ -63,6 +69,9 @@ class FastRouteCachedAdapter implements RouterInterface
         }
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function match(ServerRequestInterface $request): void
     {
         if ($this->matcher === null) {
@@ -77,8 +86,8 @@ class FastRouteCachedAdapter implements RouterInterface
     public static function details(): array
     {
         return [
-            'name' => 'YiiFastRouteCached',
-            'description' => 'Yii3 FastRoute adapter with file caching',
+            'name' => 'YiiRadixRouterPhpCache',
+            'description' => 'Yii3 RadixRouter adapter using native PHP array cache (opcache-friendly)',
         ];
     }
 }

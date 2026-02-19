@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Sirix\Router\RadixRouter\BenchmarkComparison;
 
 use Nyholm\Psr7\ServerRequest;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\SimpleCache\InvalidArgumentException;
 use RuntimeException;
 use Sirix\Router\RadixRouter\UrlMatcher;
 use Yiisoft\Cache\File\FileCache;
@@ -28,6 +30,9 @@ class YiiRadixRouterCachedAdapter implements RouterInterface
         return $routes;
     }
 
+    /**
+     * @throws InvalidArgumentException
+     */
     public function register(array $adaptedRoutes): void
     {
         $this->collector = new RouteCollector();
@@ -44,7 +49,7 @@ class YiiRadixRouterCachedAdapter implements RouterInterface
 
         $this->matcher = new UrlMatcher(
             $collection,
-            new Filecache($this->cacheFile),
+            new FileCache($this->cacheFile),
             [UrlMatcher::CONFIG_CACHE_KEY => 'routes-cache']
         );
     }
@@ -59,6 +64,20 @@ class YiiRadixRouterCachedAdapter implements RouterInterface
         $result = $this->matcher->match($request);
         if (!$result->isSuccess()) {
             throw new RuntimeException("Route not found: $path");
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    public function match(ServerRequestInterface $request): void
+    {
+        if ($this->matcher === null) {
+            throw new RuntimeException('Router not initialized');
+        }
+        $result = $this->matcher->match($request);
+        if (!$result->isSuccess()) {
+            throw new RuntimeException('Route not found: ' . $request->getUri()->getPath());
         }
     }
 

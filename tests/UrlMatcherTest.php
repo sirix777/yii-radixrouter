@@ -17,6 +17,13 @@ use Yiisoft\Router\RouteCollection;
 use Yiisoft\Router\RouteCollector;
 use Yiisoft\Router\UrlMatcherInterface;
 
+use function file_put_contents;
+use function is_file;
+use function sys_get_temp_dir;
+use function uniqid;
+use function unlink;
+use function var_export;
+
 final class UrlMatcherTest extends TestCase
 {
     /**
@@ -492,6 +499,301 @@ final class UrlMatcherTest extends TestCase
     /**
      * @throws InvalidArgumentException
      */
+    public function testPhpCacheNoFile(): void
+    {
+        $routes = [
+            Route::get('/')
+                ->action(fn () => 1)
+                ->name('site/index'),
+            Route::methods(['GET', 'POST'], '/contact')
+                ->action(fn () => 1)
+                ->name('site/contact'),
+        ];
+
+        $request = new ServerRequest('GET', '/contact');
+
+        $tempFile = sys_get_temp_dir() . '/radix-router-test-no-file-' . uniqid() . '.php';
+
+        $matcher = $this->createUrlMatcherWithPhpCache($routes, $tempFile);
+        $result = $matcher->match($request);
+
+        $this->assertTrue($result->isSuccess());
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    public function testPhpCacheHasFile(): void
+    {
+        $routes = [
+            Route::get('/')
+                ->name('site/index'),
+            Route::methods(['GET', 'POST'], '/contact')
+                ->name('site/contact'),
+        ];
+
+        $cacheArray = [
+            'hosts' => [],
+            'parameterized' => null,
+            'default' => [
+                'tree' => [],
+                'static' => [
+                    '' => [
+                        'GET' => [
+                            'code' => 200,
+                            'handler' => 'site/index',
+                            'pattern' => '/',
+                            'params' => [],
+                        ],
+                    ],
+                    '/contact' => [
+                        'GET' => [
+                            'code' => 200,
+                            'handler' => 'site/contact',
+                            'pattern' => '/contact',
+                            'params' => [],
+                        ],
+                        'POST' => [
+                            'code' => 200,
+                            'handler' => 'site/contact',
+                            'pattern' => '/contact',
+                            'params' => [],
+                        ],
+                    ],
+                ],
+            ],
+            'hostPatterns' => [],
+        ];
+
+        $request = new ServerRequest('GET', '/contact');
+
+        $tempFile = sys_get_temp_dir() . '/radix-router-test-has-file-' . uniqid() . '.php';
+        file_put_contents($tempFile, '<?php return ' . var_export($cacheArray, true) . ';');
+
+        $matcher = $this->createUrlMatcherWithPhpCache($routes, $tempFile);
+        $result = $matcher->match($request);
+
+        $this->assertTrue($result->isSuccess());
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    public function testPhpCacheFileIsCreated(): void
+    {
+        $routes = [
+            Route::get('/')
+                ->action(fn () => 1)
+                ->name('site/index'),
+            Route::get('/about')
+                ->action(fn () => 1)
+                ->name('site/about'),
+        ];
+
+        $tempFile = sys_get_temp_dir() . '/radix-router-test-created-' . uniqid() . '.php';
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
+
+        $matcher = $this->createUrlMatcherWithPhpCache($routes, $tempFile);
+
+        $request = new ServerRequest('GET', '/about');
+        $result = $matcher->match($request);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertFileExists($tempFile);
+
+        $cachedData = require $tempFile;
+        $this->assertIsArray($cachedData);
+        $this->assertArrayHasKey('default', $cachedData);
+        $this->assertArrayHasKey('hostPatterns', $cachedData);
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    public function testPhpCacheWithHostRoutes(): void
+    {
+        $routes = [
+            Route::get('/index')
+                ->action(fn () => 1)
+                ->host('api.example.com')
+                ->name('api/index'),
+        ];
+
+        $cacheArray = [
+            'hosts' => [
+                'api.example.com' => [
+                    'tree' => [],
+                    'static' => [
+                        '/index' => [
+                            'GET' => [
+                                'code' => 200,
+                                'handler' => 'api/index',
+                                'pattern' => '/index',
+                                'params' => [],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'parameterized' => null,
+            'default' => null,
+            'hostPatterns' => [],
+        ];
+
+        $tempFile = sys_get_temp_dir() . '/radix-router-test-host-' . uniqid() . '.php';
+        file_put_contents($tempFile, '<?php return ' . var_export($cacheArray, true) . ';');
+
+        $matcher = $this->createUrlMatcherWithPhpCache($routes, $tempFile);
+
+        $request = (new ServerRequest('GET', '/index'))
+            ->withUri((new ServerRequest('GET', 'http://api.example.com/index'))->getUri())
+        ;
+
+        $result = $matcher->match($request);
+
+        $this->assertTrue($result->isSuccess());
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    public function testPhpCacheWithParameterizedHost(): void
+    {
+        $routes = [
+            Route::get('/index')
+                ->action(fn () => 1)
+                ->host('{subdomain}.example.com')
+                ->name('subdomain/index'),
+        ];
+
+        $cacheArray = [
+            'hosts' => [],
+            'parameterized' => [
+                'tree' => [
+                    '' => [
+                        '/p' => [
+                            'example' => [
+                                'com' => [
+                                    'index' => [
+                                        '/r' => [
+                                            'GET' => [
+                                                'code' => 200,
+                                                'handler' => 'subdomain/index',
+                                                'params' => [
+                                                    'subdomain' => 'subdomain',
+                                                ],
+                                                'pattern' => '/:subdomain/example/com/index',
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'static' => [],
+            ],
+            'default' => null,
+            'hostPatterns' => [
+                'subdomain/index' => '{subdomain}.example.com',
+            ],
+        ];
+
+        $tempFile = sys_get_temp_dir() . '/radix-router-test-param-host-' . uniqid() . '.php';
+        file_put_contents($tempFile, '<?php return ' . var_export($cacheArray, true) . ';');
+
+        $matcher = $this->createUrlMatcherWithPhpCache($routes, $tempFile);
+
+        $request = (new ServerRequest('GET', '/index'))
+            ->withUri((new ServerRequest('GET', 'http://blog.example.com/index'))->getUri())
+        ;
+
+        $result = $matcher->match($request);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertEquals(['subdomain' => 'blog'], $result->arguments());
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    public function testPhpCacheWithParameterizedRoute(): void
+    {
+        $routes = [
+            Route::get('/post/:id')
+                ->action(fn () => 1)
+                ->name('post/view'),
+        ];
+
+        $cacheArray = [
+            'hosts' => [],
+            'parameterized' => null,
+            'default' => [
+                'tree' => [
+                    '' => [
+                        'post' => [
+                            '/p' => [
+                                '/r' => [
+                                    'GET' => [
+                                        'code' => 200,
+                                        'handler' => 'post/view',
+                                        'params' => [
+                                            'id' => 'id',
+                                        ],
+                                        'pattern' => '/post/:id',
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'static' => [],
+            ],
+            'hostPatterns' => [],
+        ];
+
+        $tempFile = sys_get_temp_dir() . '/radix-router-test-param-' . uniqid() . '.php';
+        file_put_contents($tempFile, '<?php return ' . var_export($cacheArray, true) . ';');
+
+        $matcher = $this->createUrlMatcherWithPhpCache($routes, $tempFile);
+
+        $request = new ServerRequest('GET', '/post/42');
+        $result = $matcher->match($request);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertEquals(['id' => '42'], $result->arguments());
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
     public function testPure(): void
     {
         $matcher = new UrlMatcher(
@@ -806,10 +1108,9 @@ final class UrlMatcherTest extends TestCase
     }
 
     /**
-     * @throws InvalidArgumentException
-     */
-    /**
      * @param array<int, Group|Route> $routes
+     *
+     * @throws InvalidArgumentException
      */
     private function createUrlMatcher(array $routes, ?CacheInterface $cache = null): UrlMatcherInterface
     {
@@ -818,5 +1119,27 @@ final class UrlMatcherTest extends TestCase
         $collector->addRoute($rootGroup);
 
         return new UrlMatcher(new RouteCollection($collector), $cache, ['cache_key' => 'route-cache']);
+    }
+
+    /**
+     * @param array<int, Group|Route> $routes
+     *
+     * @throws InvalidArgumentException
+     */
+    private function createUrlMatcherWithPhpCache(array $routes, string $phpCachePath): UrlMatcherInterface
+    {
+        $rootGroup = Group::create()->routes(...$routes);
+        $collector = new RouteCollector();
+        $collector->addRoute($rootGroup);
+
+        return new UrlMatcher(
+            new RouteCollection($collector),
+            null,
+            [
+                'cacheKey' => 'route-cache',
+                'saveToPhpFile' => true,
+                'phpCachePath' => $phpCachePath,
+            ]
+        );
     }
 }

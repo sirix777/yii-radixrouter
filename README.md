@@ -78,6 +78,9 @@ Configuration is available via `params.php`:
 return [
     'sirix/yii-radixrouter' => [
         'enableCache' => true,
+        'saveToPhpFile' => true,
+        'cacheKey' => 'routes-cache',
+        'phpCachePath' => 'runtime/routes-cache.php',
         'encodeRaw' => true,
         'scheme' => null,
         'host' => null,
@@ -130,7 +133,34 @@ php bench.php --mode="JIT=tracing"
 php bench.php --router=YiiRadixRouterAdapter,YiiRadixRouterCachedAdapter
 ```
 
-For detailed methodology and more information, see [benchmark-comparison/README.md](benchmark-comparison/README.md).
+### Benchmark Results
+
+> [!NOTE]
+> Benchmark results may vary depending on hardware, PHP version, OS configuration, and other environment factors.
+
+#### simple (33 routes)
+
+Performance on **8 × 11th Gen Intel® Core™ i7-1165G7 @ 2.80GHz** with **16Gb** memory:
+
+| Rank | Router                       | Mode               | Lookups/sec   | Mem (KB)   | Register (ms)   |
+|------|------------------------------|--------------------|---------------|------------|-----------------|
+|    1 | **YiiRadixRouterPhpCache**   | JIT=tracing        |       902,589 |      321.1 |           0.138 |
+|    2 | **YiiRadixRouterCached**     | JIT=tracing        |       874,764 |      477.2 |           0.334 |
+|    3 | **YiiRadixRouter**           | JIT=tracing        |       809,893 |      568.6 |           0.264 |
+|    4 | **YiiRadixRouterPhpCache**   | OPcache            |       588,295 |       63.5 |           0.142 |
+|    5 | **YiiRadixRouter**           | OPcache            |       562,243 |      127.7 |           0.319 |
+|    6 | **YiiRadixRouterCached**     | OPcache            |       561,496 |      193.1 |           0.342 |
+|    7 | **YiiRadixRouterCached**     | No OPcache         |       510,513 |      774.3 |           2.908 |
+|    8 | **YiiRadixRouter**           | No OPcache         |       506,440 |      653.7 |           2.402 |
+|    9 | **YiiRadixRouterPhpCache**   | No OPcache         |       495,544 |      672.7 |           2.417 |
+|   10 | **YiiFastRouteCached**       | JIT=tracing        |       366,698 |      213.7 |           0.227 |
+|   11 | **YiiFastRouteCached**       | OPcache            |       274,248 |       99.4 |           0.232 |
+|   12 | **YiiFastRouteCached**       | No OPcache         |       264,178 |      659.4 |           2.842 |
+|   13 | **YiiFastRoute**             | JIT=tracing        |        81,639 |      269.8 |           0.301 |
+|   14 | **YiiFastRoute**             | OPcache            |        60,548 |      101.3 |           0.360 |
+|   15 | **YiiFastRoute**             | No OPcache         |        59,739 |      610.8 |           2.537 |
+
+For detailed methodology, full results for all suites (`avatax`, `bitbucket`, `huge`), and more information, see [benchmark-comparison/README.md](benchmark-comparison/README.md).
 
 
 ## License
