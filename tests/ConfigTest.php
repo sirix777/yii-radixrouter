@@ -23,9 +23,28 @@ use Yiisoft\Router\UrlMatcherInterface;
 use Yiisoft\Test\Support\SimpleCache\MemorySimpleCache;
 
 use function dirname;
+use function is_dir;
+use function is_file;
+use function mkdir;
+use function unlink;
 
 final class ConfigTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->ensureRuntimeDirExists();
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+        $cacheFile = dirname(__DIR__) . '/runtime/routes-cache.php';
+        if (is_file($cacheFile)) {
+            unlink($cacheFile);
+        }
+    }
+
     /**
      * @throws NotFoundExceptionInterface
      * @throws InvalidConfigException
@@ -52,7 +71,10 @@ final class ConfigTest extends TestCase
      */
     public function testDiWeb(): void
     {
-        $container = $this->createContainer('web');
+        $params = $this->getParams();
+        $params['sirix/yii-radixrouter']['enableCache'] = true;
+
+        $container = $this->createContainer('web', $params);
 
         $urlMatcher = $container->get(UrlMatcherInterface::class);
 
@@ -78,6 +100,105 @@ final class ConfigTest extends TestCase
 
         $this->assertInstanceOf(UrlMatcher::class, $urlMatcher);
         $this->assertNull($this->getPropertyValue($urlMatcher, 'cache'));
+    }
+
+    /**
+     * @throws NotFoundExceptionInterface
+     * @throws InvalidConfigException
+     * @throws BuildingException
+     * @throws NotInstantiableException
+     * @throws CircularReferenceException
+     * @throws ReflectionException
+     */
+    public function testDiWithSchemeAndHost(): void
+    {
+        $params = $this->getParams();
+        $params['sirix/yii-radixrouter']['scheme'] = 'https';
+        $params['sirix/yii-radixrouter']['host'] = 'example.com';
+
+        $container = $this->createContainer(null, $params);
+
+        $urlGenerator = $container->get(UrlGeneratorInterface::class);
+
+        $this->assertInstanceOf(UrlGenerator::class, $urlGenerator);
+        $this->assertSame('https', $this->getPropertyValue($urlGenerator, 'scheme'));
+        $this->assertSame('example.com', $this->getPropertyValue($urlGenerator, 'host'));
+    }
+
+    /**
+     * @throws NotFoundExceptionInterface
+     * @throws InvalidConfigException
+     * @throws BuildingException
+     * @throws NotInstantiableException
+     * @throws CircularReferenceException
+     * @throws ReflectionException
+     */
+    public function testDiWebWithSaveToPhpFile(): void
+    {
+        $params = $this->getParams();
+        $params['sirix/yii-radixrouter']['enableCache'] = true;
+        $params['sirix/yii-radixrouter']['saveToPhpFile'] = true;
+        $params['sirix/yii-radixrouter']['phpCachePath'] = 'runtime/routes-cache.php';
+
+        $container = $this->createContainer('web', $params);
+
+        $urlMatcher = $container->get(UrlMatcherInterface::class);
+
+        $this->assertInstanceOf(UrlMatcher::class, $urlMatcher);
+        $this->assertTrue($this->getPropertyValue($urlMatcher, 'usePhpCache'));
+    }
+
+    /**
+     * @throws NotFoundExceptionInterface
+     * @throws InvalidConfigException
+     * @throws BuildingException
+     * @throws NotInstantiableException
+     * @throws CircularReferenceException
+     * @throws ReflectionException
+     */
+    public function testDiWebWithPhpCachePath(): void
+    {
+        $params = $this->getParams();
+        $params['sirix/yii-radixrouter']['enableCache'] = true;
+        $params['sirix/yii-radixrouter']['saveToPhpFile'] = true;
+        $params['sirix/yii-radixrouter']['phpCachePath'] = 'runtime/custom-cache.php';
+
+        $container = $this->createContainer('web', $params);
+
+        $urlMatcher = $container->get(UrlMatcherInterface::class);
+
+        $this->assertInstanceOf(UrlMatcher::class, $urlMatcher);
+        $this->assertSame('runtime/custom-cache.php', $this->getPropertyValue($urlMatcher, 'phpCachePath'));
+    }
+
+    /**
+     * @throws NotFoundExceptionInterface
+     * @throws InvalidConfigException
+     * @throws BuildingException
+     * @throws NotInstantiableException
+     * @throws CircularReferenceException
+     * @throws ReflectionException
+     */
+    public function testDiWebWithDisabledSaveToPhpFile(): void
+    {
+        $params = $this->getParams();
+        $params['sirix/yii-radixrouter']['enableCache'] = true;
+        $params['sirix/yii-radixrouter']['saveToPhpFile'] = false;
+
+        $container = $this->createContainer('web', $params);
+
+        $urlMatcher = $container->get(UrlMatcherInterface::class);
+
+        $this->assertInstanceOf(UrlMatcher::class, $urlMatcher);
+        $this->assertFalse($this->getPropertyValue($urlMatcher, 'usePhpCache'));
+    }
+
+    private function ensureRuntimeDirExists(): void
+    {
+        $runtimeDir = dirname(__DIR__) . '/runtime';
+        if (! is_dir($runtimeDir)) {
+            mkdir($runtimeDir, 0o755, true);
+        }
     }
 
     /**

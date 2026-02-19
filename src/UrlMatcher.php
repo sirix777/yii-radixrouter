@@ -28,7 +28,11 @@ use function array_merge;
 use function array_unique;
 use function array_values;
 use function count;
+use function file_put_contents;
 use function in_array;
+use function is_array;
+use function is_file;
+use function is_string;
 use function preg_match;
 use function preg_match_all;
 use function preg_replace_callback;
@@ -37,13 +41,25 @@ use function str_replace;
 use function strlen;
 use function substr;
 use function urldecode;
+use function var_export;
 
 final class UrlMatcher implements UrlMatcherInterface
 {
     /**
      * Configuration key used to set the cache file path.
      */
-    public const CONFIG_CACHE_KEY = 'cache_key';
+    public const CONFIG_CACHE_KEY = 'cacheKey';
+
+    /**
+     * Configuration key to enable PHP file cache (var_export).
+     */
+    public const CONFIG_USE_PHP_CACHE = 'saveToPhpFile';
+
+    /**
+     * Configuration key for the PHP cache file path.
+     */
+    public const CONFIG_PHP_CACHE_PATH = 'phpCachePath';
+
     private const VARIABLE_REGEX = <<<'REGEX'
         (?|
             \{ \s* ([a-zA-Z_][a-zA-Z0-9_-]*) \s* (?: : \s* ( (?: [^{}]++ | \{(?-1)\} )* ) )? \}
@@ -89,6 +105,10 @@ final class UrlMatcher implements UrlMatcherInterface
 
     private bool $encodeRaw = true;
 
+    private bool $usePhpCache = false;
+
+    private ?string $phpCachePath = null;
+
     /**
      * @param null|array<string, mixed> $config
      *
@@ -113,7 +133,9 @@ final class UrlMatcher implements UrlMatcherInterface
      */
     public function match(ServerRequestInterface $request): MatchingResult
     {
-        $this->initializeRoutersIfNeeded();
+        if (! $this->hasInjectedRoutes) {
+            $this->initializeRoutersIfNeeded();
+        }
 
         $context = $this->createRequestContext($request);
         $allowedMethods = [];
@@ -534,8 +556,11 @@ final class UrlMatcher implements UrlMatcherInterface
      */
     private function finalizeRouteInjection(): void
     {
-        if ($this->cache instanceof CacheInterface) {
-            $this->cacheDispatchData($this->collectDispatchData());
+        $data = $this->collectDispatchData();
+        if ($this->usePhpCache && null !== $this->phpCachePath) {
+            $this->saveToPhpFile($this->phpCachePath, $data);
+        } elseif ($this->cache instanceof CacheInterface) {
+            $this->cacheDispatchData($data);
         }
 
         $this->hasInjectedRoutes = true;
@@ -580,29 +605,82 @@ final class UrlMatcher implements UrlMatcherInterface
     private function restoreRoutersFromCache(): void
     {
         $this->hostPatterns = $this->dispatchData['hostPatterns'] ?? [];
+        $useInterning = ! $this->usePhpCache;
 
         foreach ($this->dispatchData['hosts'] as $host => $data) {
             $router = new RadixRouter();
-            $router->tree = $data['tree'];
-            $router->static = $data['static'];
+            $router->tree = $useInterning ? $this->internizeRadixData($data['tree']) : $data['tree'];
+            $router->static = $useInterning ? $this->internizeRadixData($data['static']) : $data['static'];
+
             $this->hostRouters[$host] = $router;
         }
 
         if (! empty($this->dispatchData['parameterized'])) {
             $router = new RadixRouter();
-            $router->tree = $this->dispatchData['parameterized']['tree'];
-            $router->static = $this->dispatchData['parameterized']['static'];
+            $router->tree = $useInterning
+                ? $this->internizeRadixData($this->dispatchData['parameterized']['tree'])
+                : $this->dispatchData['parameterized']['tree'];
+            $router->static = $useInterning
+                ? $this->internizeRadixData($this->dispatchData['parameterized']['static'])
+                : $this->dispatchData['parameterized']['static'];
+
             $this->parameterizedHostRouter = $router;
         }
 
         if (! empty($this->dispatchData['default'])) {
             $router = new RadixRouter();
-            $router->tree = $this->dispatchData['default']['tree'];
-            $router->static = $this->dispatchData['default']['static'];
+            $router->tree = $useInterning
+                ? $this->internizeRadixData($this->dispatchData['default']['tree'])
+                : $this->dispatchData['default']['tree'];
+            $router->static = $useInterning
+                ? $this->internizeRadixData($this->dispatchData['default']['static'])
+                : $this->dispatchData['default']['static'];
+
             $this->defaultRouter = $router;
         }
 
         $this->hasInjectedRoutes = true;
+    }
+
+    /**
+     * Normalize and deduplicate frequent strings (HTTP methods) to canonical constants
+     * to improve memory locality and reduce duplicate zvals after deserialization.
+     * Also re-keys arrays where method names are used as keys.
+     *
+     * @param array<mixed> $data
+     *
+     * @return array<mixed>
+     */
+    private function internizeRadixData(array $data): array
+    {
+        $methods = [
+            Method::GET => Method::GET,
+            Method::POST => Method::POST,
+            Method::PUT => Method::PUT,
+            Method::PATCH => Method::PATCH,
+            Method::DELETE => Method::DELETE,
+            Method::HEAD => Method::HEAD,
+            Method::OPTIONS => Method::OPTIONS,
+        ];
+
+        $out = [];
+        foreach ($data as $key => $value) {
+            $newKey = is_string($key) && isset($methods[$key]) ? $methods[$key] : $key;
+
+            if (is_array($value)) {
+                $value = $this->internizeRadixData($value);
+            } elseif (is_string($value) && isset($methods[$value])) {
+                $value = $methods[$value];
+            }
+
+            if ($newKey !== $key) {
+                $out[$newKey] = $value;
+            } else {
+                $out[$key] = $value;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -617,6 +695,14 @@ final class UrlMatcher implements UrlMatcherInterface
         if (isset($config[self::CONFIG_CACHE_KEY])) {
             $this->cacheKey = (string) $config[self::CONFIG_CACHE_KEY];
         }
+
+        if (isset($config[self::CONFIG_USE_PHP_CACHE])) {
+            $this->usePhpCache = (bool) $config[self::CONFIG_USE_PHP_CACHE];
+        }
+
+        if (isset($config[self::CONFIG_PHP_CACHE_PATH])) {
+            $this->phpCachePath = (string) $config[self::CONFIG_PHP_CACHE_PATH];
+        }
     }
 
     /**
@@ -624,6 +710,13 @@ final class UrlMatcher implements UrlMatcherInterface
      */
     private function loadDispatchData(): void
     {
+        if ($this->usePhpCache && null !== $this->phpCachePath && is_file($this->phpCachePath)) {
+            $this->dispatchData = require $this->phpCachePath;
+            $this->hasCache = true;
+
+            return;
+        }
+
         if ($this->cache instanceof CacheInterface && $this->cache->has($this->cacheKey)) {
             /** @var array<string, mixed> $dispatchData */
             $dispatchData = $this->cache->get($this->cacheKey);
@@ -647,5 +740,14 @@ final class UrlMatcher implements UrlMatcherInterface
         if ($this->cache instanceof CacheInterface) {
             $this->cache->set($this->cacheKey, $dispatchData);
         }
+    }
+
+    /**
+     * @param array<string, mixed> $dispatchData
+     */
+    private function saveToPhpFile(string $path, array $dispatchData): void
+    {
+        $content = "<?php\n\nreturn " . var_export($dispatchData, true) . ";\n";
+        file_put_contents($path, $content, LOCK_EX);
     }
 }

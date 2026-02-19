@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 return [
     'sirix/yii-radixrouter' => [
-        'enableCache' => true,
+        'enableCache' => false,
+        'saveToPhpFile' => true,
+        'phpCachePath' => 'runtime/routes-cache.php',
 
         /**
          * Yii Framework encodes URLs differently than previous versions. If you are
